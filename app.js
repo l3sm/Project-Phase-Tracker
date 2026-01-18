@@ -165,12 +165,28 @@ const abandonProject = (projects, id) =>
 
 const projectsGrid = document.getElementById("projectsGrid");
 const emptyState = document.getElementById("emptyState");
+const emptyStateLabel = emptyState?.querySelector(".empty-state__label");
+const emptyStateHint = emptyState?.querySelector(".empty-state__hint");
 const capacityIndicator = document.getElementById("capacityIndicator");
 const capacityFeedback = document.getElementById("capacityFeedback");
 let capacityFeedbackTimer;
 const mainContent = document.querySelector(".main-content");
 const viewButtons = Array.from(document.querySelectorAll("[data-view-option]"));
 let currentView = "dashboard";
+const EMPTY_STATE_COPY = {
+  dashboard: {
+    title: "No projects yet",
+    hint: "Start a new project to see your roadmap take shape.",
+  },
+  completed: {
+    title: "No completed projects yet",
+    hint: "Projects marked Done will appear here.",
+  },
+  abandoned: {
+    title: "No abandoned projects",
+    hint: "Abandoned projects will appear here.",
+  },
+};
 
 const updateCapacityIndicator = (activeCount) => {
   if (!capacityIndicator) {
@@ -228,6 +244,15 @@ const render = () => {
   updateCapacityIndicator(dashboardProjects.length);
 
   const visibleProjects = getProjectsForView(projects, currentView);
+  const stateCopy = EMPTY_STATE_COPY[currentView] || EMPTY_STATE_COPY.dashboard;
+
+  if (emptyStateLabel) {
+    emptyStateLabel.textContent = stateCopy.title;
+  }
+
+  if (emptyStateHint) {
+    emptyStateHint.textContent = stateCopy.hint;
+  }
 
   if (emptyState) {
     emptyState.hidden = visibleProjects.length > 0;
@@ -364,6 +389,17 @@ const toggleLeftRail = () => {
   settingsButton?.setAttribute("aria-pressed", nextState);
 };
 
+const closeLeftRail = () => {
+  if (!mainContent) {
+    return;
+  }
+
+  if (mainContent.dataset.railOpen === "true") {
+    mainContent.dataset.railOpen = "false";
+    settingsButton?.setAttribute("aria-pressed", "false");
+  }
+};
+
 settingsButton?.addEventListener("click", () => {
   toggleLeftRail();
 });
@@ -375,6 +411,7 @@ viewButtons.forEach((button) => {
       return;
     }
     setView(viewOption);
+    closeLeftRail();
   });
 });
 
