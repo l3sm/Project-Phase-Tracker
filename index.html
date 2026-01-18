@@ -10,7 +10,7 @@
     <div class="app-shell">
       <header class="top-bar">
         <div class="top-bar__left">
-          <button id="btnSettings" class="icon-button" aria-label="Open settings">
+          <button id="btnSettings" class="icon-button" aria-label="Toggle navigation rail" aria-pressed="false">
             <svg
               width="20"
               height="20"
@@ -37,22 +37,67 @@
           </button>
         </div>
         <div class="top-bar__right">
+          <div class="capacity-panel">
+            <span id="capacityIndicator" class="capacity-indicator" aria-live="polite">0 / 16</span>
+            <span
+              id="capacityFeedback"
+              class="capacity-feedback"
+              role="status"
+              aria-live="assertive"
+              hidden
+            ></span>
+          </div>
           <button id="btnCreate" class="fab-button" aria-label="Create new project">
             +
           </button>
         </div>
       </header>
 
-      <main class="main-content">
-        <section class="workspace">
-          <div id="projectsGrid" class="grid-shell" aria-label="Projects grid"></div>
-          <div id="emptyState" class="empty-state">
-            <p class="empty-state__label">No projects yet</p>
-            <p class="empty-state__hint">
-              Start a new project to see your roadmap take shape.
-            </p>
+          <main class="main-content" data-view="dashboard" data-rail-open="false">
+            <div class="canvas-shell">
+              <aside class="left-rail" aria-label="View navigation rail">
+            <nav class="left-rail__nav" role="tablist">
+              <button
+                type="button"
+                class="left-rail__item is-active"
+                data-view-option="dashboard"
+                aria-current="page"
+              >
+                Dashboard
+              </button>
+              <button
+                type="button"
+                class="left-rail__item"
+                data-view-option="completed"
+                aria-current="false"
+              >
+                Completed
+              </button>
+              <button
+                type="button"
+                class="left-rail__item"
+                data-view-option="abandoned"
+                aria-current="false"
+              >
+                Abandoned
+              </button>
+            </nav>
+          </aside>
+
+          <div class="canvas-center">
+            <section class="workspace">
+              <div id="projectsGrid" class="grid-shell" aria-label="Projects grid"></div>
+              <div id="emptyState" class="empty-state">
+                <p class="empty-state__label">No projects yet</p>
+                <p class="empty-state__hint">
+                  Start a new project to see your roadmap take shape.
+                </p>
+              </div>
+            </section>
           </div>
-        </section>
+
+          <div class="right-space" aria-hidden="true"></div>
+        </div>
       </main>
     </div>
     <script src="app.js"></script>
