@@ -54,8 +54,8 @@
       </header>
 
           <main class="main-content" data-view="dashboard" data-rail-open="false">
-            <div class="canvas-shell">
-              <aside class="left-rail" aria-label="View navigation rail">
+        <div class="canvas-shell">
+          <aside class="left-rail" aria-label="View navigation rail">
             <nav class="left-rail__nav" role="tablist">
               <button
                 type="button"
@@ -96,7 +96,80 @@
             </section>
           </div>
 
-          <div class="right-space" aria-hidden="true"></div>
+          <aside class="right-inspector" aria-label="Project inspector">
+            <div class="right-inspector__shell">
+              <header class="right-inspector__header">
+                <input
+                  id="inspectorName"
+                  class="right-inspector__title-input"
+                  type="text"
+                  placeholder="Project name"
+                  aria-label="Project name"
+                />
+                <button id="inspectorClose" class="icon-button right-inspector__close" aria-label="Close inspector">
+                  ×
+                </button>
+              </header>
+              <div class="right-inspector__body">
+                <section class="inspector-section">
+                  <p class="inspector-section__title">Properties</p>
+                  <label class="inspector-field">
+                    <span>Owner</span>
+                    <input id="inspectorOwner" type="text" placeholder="Owner name" />
+                  </label>
+                  <label class="inspector-field">
+                    <span>Phase</span>
+                    <select id="inspectorPhase">
+                      <option value="Idea">Idea</option>
+                      <option value="Build">Build</option>
+                      <option value="Fix">Fix</option>
+                      <option value="Done">Done</option>
+                    </select>
+                  </label>
+                  <label class="inspector-field">
+                    <span>Due date</span>
+                    <div class="inspector-date-row">
+                      <input id="inspectorDueDate" type="date" />
+                      <button id="inspectorClearDueDate" type="button">Clear</button>
+                    </div>
+                  </label>
+                </section>
+                <section class="inspector-section">
+                  <p class="inspector-section__title">Notes</p>
+                  <div class="notes-tablist" role="tablist">
+                    <button type="button" class="notes-tab" data-notes-phase="Idea">Idea</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Build">Build</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Fix">Fix</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Done">Done</button>
+                  </div>
+                  <textarea id="inspectorNotes" placeholder="Enter phase specific notes"></textarea>
+                </section>
+                <section class="inspector-section inspector-history">
+                  <p class="inspector-section__title">Phase history</p>
+                  <ul id="inspectorHistoryList" class="inspector-history__list"></ul>
+                </section>
+                <section class="inspector-section inspector-meta">
+                  <p class="inspector-section__title">Metadata</p>
+                  <div class="inspector-meta__row">
+                    <span>Created</span>
+                    <span id="inspectorCreated"></span>
+                  </div>
+                  <div class="inspector-meta__row">
+                    <span>Updated</span>
+                    <span id="inspectorUpdated"></span>
+                  </div>
+                </section>
+                <div class="inspector-footer">
+                  <button id="inspectorAbandon" class="inspector-footer__button inspector-footer__button--danger">
+                    Abandon project
+                  </button>
+                  <div class="inspector-footer__confirmation" id="inspectorAbandonConfirm">
+                    Click again or press Ctrl+Enter to confirm
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </main>
     </div>
