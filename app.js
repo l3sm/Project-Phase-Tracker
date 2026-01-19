@@ -1,14 +1,71 @@
 const STORAGE_KEY = "projectPhaseTracker.projects.v1";
+const SORT_STORAGE_KEY = "projectPhaseTracker.sortMode.v1";
 const VALID_PHASES = ["Idea", "Build", "Fix", "Done"];
 const PROJECT_LIMIT = 16;
 const VIEW_STATES = ["dashboard", "completed", "abandoned"];
+const SORT_MODES = ["lastUpdated", "createdAt", "dueDate", "phase"];
+const PHASE_SORT_ORDER = ["Idea", "Build", "Fix", "Done"];
 
-const sortByRecency = (entries) =>
-  [...entries].sort(
-    (a, b) =>
-      Date.parse(b.lastUpdated) - Date.parse(a.lastUpdated) ||
-      Date.parse(b.createdAt) - Date.parse(a.createdAt)
-  );
+const parseTimestamp = (value) => {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const compareTieBreakers = (a, b) => {
+  const lastUpdatedDiff =
+    (parseTimestamp(b.lastUpdated) ?? 0) - (parseTimestamp(a.lastUpdated) ?? 0);
+  if (lastUpdatedDiff) {
+    return lastUpdatedDiff;
+  }
+
+  const createdDiff =
+    (parseTimestamp(b.createdAt) ?? 0) - (parseTimestamp(a.createdAt) ?? 0);
+  if (createdDiff) {
+    return createdDiff;
+  }
+
+  return a.id.localeCompare(b.id);
+};
+
+const applySort = (entries, mode) => {
+  const normalizedMode = SORT_MODES.includes(mode) ? mode : "lastUpdated";
+  return [...entries].sort((a, b) => {
+    if (normalizedMode === "createdAt") {
+      const diff = (parseTimestamp(b.createdAt) ?? 0) - (parseTimestamp(a.createdAt) ?? 0);
+      return diff || compareTieBreakers(a, b);
+    }
+
+    if (normalizedMode === "dueDate") {
+      const aDue = parseTimestamp(a.dueDate);
+      const bDue = parseTimestamp(b.dueDate);
+      const aHasDue = Number.isFinite(aDue);
+      const bHasDue = Number.isFinite(bDue);
+      if (aHasDue && bHasDue) {
+        const diff = aDue - bDue;
+        return diff || compareTieBreakers(a, b);
+      }
+      if (aHasDue) {
+        return -1;
+      }
+      if (bHasDue) {
+        return 1;
+      }
+      return compareTieBreakers(a, b);
+    }
+
+    if (normalizedMode === "phase") {
+      const aIndex = PHASE_SORT_ORDER.indexOf(a.phase);
+      const bIndex = PHASE_SORT_ORDER.indexOf(b.phase);
+      if (aIndex !== bIndex) {
+        return aIndex - bIndex;
+      }
+      return compareTieBreakers(a, b);
+    }
+
+    const diff = (parseTimestamp(b.lastUpdated) ?? 0) - (parseTimestamp(a.lastUpdated) ?? 0);
+    return diff || compareTieBreakers(a, b);
+  });
+};
 
 const buildNotesByPhase = (recordPhase, recordNotesByPhase, legacyNotes) => {
   const bag = VALID_PHASES.reduce((acc, phase) => {
@@ -139,19 +196,28 @@ const saveProjects = (projects) => {
   }
 };
 
-const getActiveProjects = (projects) => sortByRecency(projects.filter((project) => project.status === "active"));
+const loadSortMode = () => {
+  const stored = localStorage.getItem(SORT_STORAGE_KEY);
+  return SORT_MODES.includes(stored) ? stored : "lastUpdated";
+};
+
+const saveSortMode = (mode) => {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, mode);
+  } catch (error) {
+    console.warn("[Project Phase Tracker] Failed to save sort mode.", error);
+  }
+};
 
 const isPendingDoneProject = (project) => pendingDoneIds.has(project.id);
 
 const getCompletedProjects = (projects) =>
-  sortByRecency(
-    projects.filter(
-      (project) => project.status === "active" && project.phase === "Done" && !isPendingDoneProject(project)
-    )
+  projects.filter(
+    (project) => project.status === "active" && project.phase === "Done" && !isPendingDoneProject(project)
   );
 
 const getAbandonedProjects = (projects) =>
-  sortByRecency(projects.filter((project) => project.status === "abandoned"));
+  projects.filter((project) => project.status === "abandoned");
 
 const getProjectsForView = (projects, view) => {
   switch (view) {
@@ -160,7 +226,7 @@ const getProjectsForView = (projects, view) => {
     case "abandoned":
       return getAbandonedProjects(projects);
     default:
-      return getActiveProjects(projects);
+      return getDashboardProjects(projects);
   }
 };
 
@@ -259,10 +325,8 @@ const applyProjectPatch = (projectId, changes, { skipRender = false } = {}) => {
 };
 
 const getDashboardProjects = (projects) =>
-  sortByRecency(
-    projects.filter(
-      (project) => project.status === "active" && (project.phase !== "Done" || isPendingDoneProject(project))
-    )
+  projects.filter(
+    (project) => project.status === "active" && (project.phase !== "Done" || isPendingDoneProject(project))
   );
 
 const canCreateNewProject = (projects) => getDashboardProjects(projects).length < PROJECT_LIMIT;
@@ -310,8 +374,10 @@ const capacityIndicator = document.getElementById("capacityIndicator");
 const capacityFeedback = document.getElementById("capacityFeedback");
 let capacityFeedbackTimer;
 const mainContent = document.querySelector(".main-content");
+const sortSelect = document.getElementById("sortSelect");
 const viewButtons = Array.from(document.querySelectorAll("[data-view-option]"));
 let currentView = "dashboard";
+let currentSortMode = loadSortMode();
 const EMPTY_STATE_COPY = {
   dashboard: {
     title: "No projects yet",
@@ -400,7 +466,7 @@ const render = () => {
   const dashboardProjects = getDashboardProjects(projects);
   updateCapacityIndicator(dashboardProjects.length);
 
-  const visibleProjects = getProjectsForView(projects, currentView);
+  const visibleProjects = applySort(getProjectsForView(projects, currentView), currentSortMode);
   const stateCopy = EMPTY_STATE_COPY[currentView] || EMPTY_STATE_COPY.dashboard;
 
   if (emptyStateLabel) {
@@ -431,12 +497,29 @@ const render = () => {
     }
     card.addEventListener("click", () => openInspectorForProject(project.id));
 
-    const header = document.createElement("div");
-    header.className = "project-card__header";
+    const content = document.createElement("div");
+    content.className = "project-card__content";
 
     const title = document.createElement("p");
     title.className = "project-card__title";
     title.textContent = project.name;
+    title.title = project.name;
+    content.appendChild(title);
+
+    if (project.owner) {
+      const owner = document.createElement("p");
+      owner.className = "project-card__owner";
+      owner.textContent = `Owner: ${project.owner}`;
+      content.appendChild(owner);
+    }
+
+    const meta = document.createElement("p");
+    meta.className = "project-card__meta";
+    meta.textContent = `Updated ${formatRelativeTime(project.lastUpdated)}`;
+    content.appendChild(meta);
+
+    const footer = document.createElement("div");
+    footer.className = "project-card__footer";
 
     const phaseSelect = document.createElement("select");
     phaseSelect.className = "project-card__phase-select";
@@ -468,20 +551,7 @@ const render = () => {
       changeProjectPhase(project.id, selectElement.value);
     });
 
-    header.append(title, phaseSelect);
-    card.appendChild(header);
-
-    if (project.owner) {
-      const owner = document.createElement("p");
-      owner.className = "project-card__owner";
-      owner.textContent = `Owner: ${project.owner}`;
-      card.appendChild(owner);
-    }
-
-    const meta = document.createElement("p");
-    meta.className = "project-card__meta";
-    meta.textContent = `Updated ${formatRelativeTime(project.lastUpdated)}`;
-    card.appendChild(meta);
+    footer.appendChild(phaseSelect);
 
     if (currentView !== "dashboard") {
       const actions = document.createElement("div");
@@ -510,9 +580,10 @@ const render = () => {
       });
 
       actions.appendChild(deleteButton);
-      card.appendChild(actions);
+      content.appendChild(actions);
     }
 
+    card.append(content, footer);
     projectsGrid.appendChild(card);
   });
 
@@ -745,6 +816,9 @@ const logProjectCounts = (projects) => {
 let projects = loadProjects();
 logProjectCounts(projects);
 syncViewUI();
+if (sortSelect) {
+  sortSelect.value = currentSortMode;
+}
 render();
 
 const settingsButton = document.getElementById("btnSettings");
@@ -785,6 +859,16 @@ viewButtons.forEach((button) => {
     setView(viewOption);
     closeLeftRail();
   });
+});
+
+sortSelect?.addEventListener("change", (event) => {
+  const nextMode = event.currentTarget.value;
+  if (!SORT_MODES.includes(nextMode)) {
+    return;
+  }
+  currentSortMode = nextMode;
+  saveSortMode(nextMode);
+  render();
 });
 
 notesTabButtons.forEach((button) => {

@@ -37,6 +37,15 @@
           </button>
         </div>
         <div class="top-bar__right">
+          <label class="sort-control">
+            <span class="sort-control__label">Sort</span>
+            <select id="sortSelect" class="sort-control__select" aria-label="Sort projects">
+              <option value="lastUpdated">Last updated</option>
+              <option value="createdAt">Date created</option>
+              <option value="dueDate">Due date</option>
+              <option value="phase">Phase</option>
+            </select>
+          </label>
           <div class="capacity-panel">
             <span id="capacityIndicator" class="capacity-indicator" aria-live="polite">0 / 16</span>
             <span
