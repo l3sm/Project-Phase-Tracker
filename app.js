@@ -1,10 +1,12 @@
 const STORAGE_KEY = "projectPhaseTracker.projects.v1";
 const SORT_STORAGE_KEY = "projectPhaseTracker.sortMode.v1";
+const THEME_STORAGE_KEY = "projectPhaseTracker.theme.v1";
 const VALID_PHASES = ["Idea", "Build", "Fix", "Done"];
 const PROJECT_LIMIT = 16;
 const VIEW_STATES = ["dashboard", "completed", "abandoned"];
 const SORT_MODES = ["lastUpdated", "createdAt", "dueDate", "phase"];
 const PHASE_SORT_ORDER = ["Idea", "Build", "Fix", "Done"];
+const THEMES = ["light", "dark"];
 
 const parseTimestamp = (value) => {
   const parsed = Date.parse(value);
@@ -199,6 +201,35 @@ const saveProjects = (projects) => {
 const loadSortMode = () => {
   const stored = localStorage.getItem(SORT_STORAGE_KEY);
   return SORT_MODES.includes(stored) ? stored : "lastUpdated";
+};
+
+const loadTheme = () => {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    return THEMES.includes(stored) ? stored : "light";
+  } catch (error) {
+    console.warn("[Project Phase Tracker] Failed to read stored theme.", error);
+    return "light";
+  }
+};
+
+const saveTheme = (theme) => {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (error) {
+    console.warn("[Project Phase Tracker] Failed to save theme.", error);
+  }
+};
+
+const toThemePressedState = (theme) => (theme === "dark" ? "true" : "false");
+
+const applyTheme = (theme, button) => {
+  const normalized = THEMES.includes(theme) ? theme : "light";
+  document.documentElement.dataset.theme = normalized;
+  if (button) {
+    button.setAttribute("aria-pressed", toThemePressedState(normalized));
+  }
+  return normalized;
 };
 
 const saveSortMode = (mode) => {
@@ -813,6 +844,11 @@ const logProjectCounts = (projects) => {
   );
 };
 
+const settingsButton = document.getElementById("btnSettings");
+const themeButton = document.getElementById("btnTheme");
+const createButton = document.getElementById("btnCreate");
+let currentTheme = applyTheme(loadTheme(), themeButton);
+
 let projects = loadProjects();
 logProjectCounts(projects);
 syncViewUI();
@@ -820,9 +856,6 @@ if (sortSelect) {
   sortSelect.value = currentSortMode;
 }
 render();
-
-const settingsButton = document.getElementById("btnSettings");
-const createButton = document.getElementById("btnCreate");
 
 const toggleLeftRail = () => {
   if (!mainContent) {
@@ -848,6 +881,12 @@ const closeLeftRail = () => {
 
 settingsButton?.addEventListener("click", () => {
   toggleLeftRail();
+});
+
+themeButton?.addEventListener("click", () => {
+  const nextTheme = currentTheme === "dark" ? "light" : "dark";
+  currentTheme = applyTheme(nextTheme, themeButton);
+  saveTheme(currentTheme);
 });
 
 viewButtons.forEach((button) => {
