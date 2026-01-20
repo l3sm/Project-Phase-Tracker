@@ -1,0 +1,48 @@
+END USER LICENSE AGREEMENT (EULA)
+
+This software is licensed, not sold.
+
+Copyright (c) 2026 Angelos Pollatos
+
+By downloading, installing, or using this software, you agree to the following terms.
+
+## License grant
+
+You are granted a non-exclusive, non-transferable license to use this software for personal and commercial purposes, including freelance and business use.
+
+## Permitted use
+
+You may:
+
+* Use the software on your own devices
+* Use it in professional or freelance work
+* Modify the software locally for your own use
+
+## Prohibited use
+
+You may NOT:
+
+* Resell the software
+* Redistribute or share the software or its files
+* Publish or distribute modified or unmodified versions
+* Repackage the software as part of another product or service
+
+## Ownership
+
+All rights, title, and interest in the software remain with the author.
+This license does not grant ownership of the software.
+
+## Updates and support
+
+Updates and support may be provided at the author’s discretion and are not guaranteed.
+
+## No warranty
+
+The software is provided “as is”, without warranty of any kind.
+The author is not responsible for data loss, business loss, or other damages resulting from use.
+
+## Termination
+
+This license is automatically terminated if you violate these terms.
+Upon termination, you must stop using and delete all copies of the software.
+
