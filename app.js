@@ -1880,7 +1880,38 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (event.shiftKey && event.key.toLowerCase() === "n") {
-    console.log("shortcut: new project");
+  if (
+    event.shiftKey &&
+    event.key.toLowerCase() === "n" &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    if (isEditableField(event.target)) {
+      return;
+    }
+
+    const modalOpen =
+      (modalBackdrop && !modalBackdrop.hidden) ||
+      (importModal && !importModal.hidden) ||
+      (helpModal && !helpModal.hidden);
+    if (modalOpen) {
+      return;
+    }
+
+    event.preventDefault();
+    if (draftProject) {
+      requestAnimationFrame(() => {
+        inspectorNameInput?.focus();
+      });
+      return;
+    }
+
+    ensureDashboardWorkspaceVisible();
+    openDraftInspector(createButton);
+    requestAnimationFrame(() => {
+      inspectorNameInput?.focus();
+    });
+    return;
   }
 });

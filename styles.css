@@ -179,6 +179,14 @@ body {
   flex-wrap: wrap;
 }
 
+.top-bar__note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
 .top-bar__actions {
   display: inline-flex;
   align-items: center;
