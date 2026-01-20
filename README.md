@@ -84,5 +84,5 @@ If you want to back things up or move your data elsewhere, you can export your p
 
 ## License
 
-Add license information here.
+View LICENSE.md
 
