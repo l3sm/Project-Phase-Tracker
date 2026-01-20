@@ -7,6 +7,8 @@ const VIEW_STATES = ["dashboard", "completed", "abandoned"];
 const SORT_MODES = ["lastUpdated", "createdAt", "dueDate", "phase"];
 const PHASE_SORT_ORDER = ["Idea", "Build", "Fix", "Done"];
 const THEMES = ["light", "dark"];
+const SCHEMA_VERSION = 1;
+const TOAST_DURATION_MS = 6000;
 
 const parseTimestamp = (value) => {
   const parsed = Date.parse(value);
@@ -124,9 +126,6 @@ const normalizeDueDate = (value) => {
   return new Date(parsed).toISOString().split("T")[0];
 };
 
-const pendingDoneIds = new Set();
-const pendingDoneTimers = new Map();
-
 const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
 
 const getNowISO = () => new Date().toISOString();
@@ -179,11 +178,15 @@ const loadProjects = () => {
 
   try {
     const parsed = JSON.parse(payload);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Payload is not an array");
+    if (Array.isArray(parsed)) {
+      return parsed.map(normalizeProject);
     }
 
-    return parsed.map(normalizeProject);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.projects)) {
+      return parsed.projects.map(normalizeProject);
+    }
+
+    throw new Error("Payload is not an array or object");
   } catch (error) {
     console.warn("[Project Phase Tracker] Failed to parse stored projects.", error);
     return [];
@@ -240,12 +243,8 @@ const saveSortMode = (mode) => {
   }
 };
 
-const isPendingDoneProject = (project) => pendingDoneIds.has(project.id);
-
 const getCompletedProjects = (projects) =>
-  projects.filter(
-    (project) => project.status === "active" && project.phase === "Done" && !isPendingDoneProject(project)
-  );
+  projects.filter((project) => project.status === "active" && project.phase === "Done");
 
 const getAbandonedProjects = (projects) =>
   projects.filter((project) => project.status === "abandoned");
@@ -261,26 +260,6 @@ const getProjectsForView = (projects, view) => {
   }
 };
 
-const scheduleDoneTransition = (projectId) => {
-  clearDoneTransition(projectId);
-  const timeoutId = setTimeout(() => {
-    pendingDoneIds.delete(projectId);
-    pendingDoneTimers.delete(projectId);
-    render();
-  }, 5000);
-  pendingDoneTimers.set(projectId, timeoutId);
-  pendingDoneIds.add(projectId);
-};
-
-const clearDoneTransition = (projectId) => {
-  const timerId = pendingDoneTimers.get(projectId);
-  if (timerId) {
-    clearTimeout(timerId);
-    pendingDoneTimers.delete(projectId);
-  }
-  pendingDoneIds.delete(projectId);
-};
-
 const changeProjectPhase = (projectId, nextPhase) => {
   if (!VALID_PHASES.includes(nextPhase)) {
     return null;
@@ -288,6 +267,7 @@ const changeProjectPhase = (projectId, nextPhase) => {
 
   const now = getNowISO();
   let updatedProject = null;
+  let previousPhase = null;
   const nextProjects = projects.map((project) => {
     if (project.id !== projectId) {
       return project;
@@ -297,6 +277,7 @@ const changeProjectPhase = (projectId, nextPhase) => {
       return project;
     }
 
+    previousPhase = project.phase;
     const history = Array.isArray(project.phaseHistory) ? project.phaseHistory : [];
     updatedProject = {
       ...project,
@@ -314,10 +295,17 @@ const changeProjectPhase = (projectId, nextPhase) => {
   projects = nextProjects;
   saveProjects(projects);
 
-  if (nextPhase === "Done" && updatedProject.status === "active") {
-    scheduleDoneTransition(projectId);
-  } else {
-    clearDoneTransition(projectId);
+  if (nextPhase === "Done" && updatedProject.status === "active" && previousPhase) {
+    lastDoneAction = {
+      projectId,
+      previousPhase,
+      previousView: currentView,
+    };
+    showToast({
+      message: "Moved to Completed.",
+      actionLabel: "Undo",
+      onAction: undoLastDoneAction,
+    });
   }
 
   if (selectedProjectId === projectId) {
@@ -356,9 +344,7 @@ const applyProjectPatch = (projectId, changes, { skipRender = false } = {}) => {
 };
 
 const getDashboardProjects = (projects) =>
-  projects.filter(
-    (project) => project.status === "active" && (project.phase !== "Done" || isPendingDoneProject(project))
-  );
+  projects.filter((project) => project.status === "active" && project.phase !== "Done");
 
 const canCreateNewProject = (projects) => getDashboardProjects(projects).length < PROJECT_LIMIT;
 
@@ -406,9 +392,31 @@ const capacityFeedback = document.getElementById("capacityFeedback");
 let capacityFeedbackTimer;
 const mainContent = document.querySelector(".main-content");
 const sortSelect = document.getElementById("sortSelect");
+const searchInputTop = document.getElementById("searchInputTop");
+const searchInputDrawer = document.getElementById("searchInputDrawer");
+const exportButton = document.getElementById("btnExport");
+const exportButtonDrawer = document.getElementById("btnExportDrawer");
+const importButton = document.getElementById("btnImport");
+const importButtonDrawer = document.getElementById("btnImportDrawer");
+const helpButton = document.getElementById("btnHelp");
+const helpButtonDrawer = document.getElementById("btnHelpDrawer");
+const importFileInput = document.getElementById("importFileInput");
+const railBackdrop = document.getElementById("railBackdrop");
+const inspectorBackdrop = document.getElementById("inspectorBackdrop");
+const modalBackdrop = document.getElementById("modalBackdrop");
+const importModal = document.getElementById("importModal");
+const importCloseButton = document.getElementById("importClose");
+const importMergeButton = document.getElementById("importMerge");
+const importReplaceButton = document.getElementById("importReplace");
+const helpModal = document.getElementById("helpModal");
+const helpCloseButton = document.getElementById("helpClose");
+const toast = document.getElementById("toast");
+const toastMessage = document.getElementById("toastMessage");
+const toastAction = document.getElementById("toastAction");
 const viewButtons = Array.from(document.querySelectorAll("[data-view-option]"));
 let currentView = "dashboard";
 let currentSortMode = loadSortMode();
+let searchQuery = "";
 const EMPTY_STATE_COPY = {
   dashboard: {
     title: "No projects yet",
@@ -424,13 +432,13 @@ const EMPTY_STATE_COPY = {
   },
 };
 
+const leftRail = document.querySelector(".left-rail");
 const rightInspector = document.querySelector(".right-inspector");
 const inspectorNameInput = document.getElementById("inspectorName");
 const inspectorOwnerInput = document.getElementById("inspectorOwner");
 const inspectorPhaseSelect = document.getElementById("inspectorPhase");
 const inspectorDueDateInput = document.getElementById("inspectorDueDate");
 const inspectorClearDueDateButton = document.getElementById("inspectorClearDueDate");
-const inspectorNotesTextarea = document.getElementById("inspectorNotes");
 const inspectorHistoryList = document.getElementById("inspectorHistoryList");
 const inspectorCreated = document.getElementById("inspectorCreated");
 const inspectorUpdated = document.getElementById("inspectorUpdated");
@@ -438,9 +446,17 @@ const inspectorCloseButton = document.getElementById("inspectorClose");
 const inspectorAbandonButton = document.getElementById("inspectorAbandon");
 const inspectorAbandonConfirm = document.getElementById("inspectorAbandonConfirm");
 const notesTabButtons = Array.from(document.querySelectorAll(".notes-tab"));
+const notesPanels = Array.from(document.querySelectorAll(".notes-panel"));
+const notesTextareas = Array.from(document.querySelectorAll("[data-notes-panel]"));
 let selectedProjectId = null;
 let inspectorNotesPhase = "Idea";
 let pendingAction = null;
+let lastDoneAction = null;
+let pendingImport = null;
+let toastTimer;
+let activeTrap = null;
+let lastFocusedElement = null;
+let inspectorReturnFocus = null;
 
 const updateCapacityIndicator = (activeCount) => {
   if (!capacityIndicator) {
@@ -493,19 +509,281 @@ const formatRelativeTime = (isoString) => {
   return `${days}d ago`;
 };
 
+const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
+
+const focusableSelector =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+const getFocusableElements = (container) => {
+  if (!container) {
+    return [];
+  }
+  return Array.from(container.querySelectorAll(focusableSelector)).filter(
+    (element) =>
+      !element.hasAttribute("disabled") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      !element.closest("[hidden]")
+  );
+};
+
+const deactivateFocusTrap = () => {
+  activeTrap = null;
+  if (lastFocusedElement && document.contains(lastFocusedElement)) {
+    requestAnimationFrame(() => lastFocusedElement?.focus?.());
+  }
+  lastFocusedElement = null;
+};
+
+const activateFocusTrap = (container, { initialFocusEl, onClose } = {}) => {
+  if (!container) {
+    return;
+  }
+  if (activeTrap) {
+    lastFocusedElement = null;
+    deactivateFocusTrap();
+  }
+  lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  activeTrap = { container, onClose };
+  const focusable = getFocusableElements(container);
+  const target = initialFocusEl || focusable[0];
+  if (target) {
+    requestAnimationFrame(() => target.focus());
+  }
+};
+
+const handleTrapKeydown = (event) => {
+  if (!activeTrap || event.key !== "Tab") {
+    return false;
+  }
+  const focusable = getFocusableElements(activeTrap.container);
+  if (!focusable.length) {
+    event.preventDefault();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const isShift = event.shiftKey;
+  const activeElement = document.activeElement;
+
+  if (isShift && activeElement === first) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!isShift && activeElement === last) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+};
+
+const showBackdrop = (backdrop, isVisible) => {
+  if (backdrop) {
+    backdrop.hidden = !isVisible;
+  }
+};
+
+const openModal = (modalElement, focusTarget) => {
+  if (!modalElement) {
+    return;
+  }
+  modalElement.hidden = false;
+  showBackdrop(modalBackdrop, true);
+  activateFocusTrap(modalElement, {
+    onClose: () => closeModal(modalElement),
+    initialFocusEl: focusTarget,
+  });
+};
+
+const closeModal = (modalElement) => {
+  if (!modalElement) {
+    return;
+  }
+  modalElement.hidden = true;
+  showBackdrop(modalBackdrop, false);
+  deactivateFocusTrap();
+};
+
+const showToast = ({ message, actionLabel, onAction, duration = TOAST_DURATION_MS }) => {
+  if (!toast || !toastMessage || !toastAction) {
+    return;
+  }
+
+  toastMessage.textContent = message;
+  if (onAction) {
+    toastAction.textContent = actionLabel || "Undo";
+    toastAction.hidden = false;
+    toastAction.onclick = () => {
+      onAction();
+      hideToast();
+    };
+  } else {
+    toastAction.hidden = true;
+    toastAction.onclick = null;
+  }
+
+  toast.hidden = false;
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+  toastTimer = setTimeout(() => {
+    hideToast();
+  }, duration);
+};
+
+const hideToast = () => {
+  if (!toast) {
+    return;
+  }
+  toast.hidden = true;
+  toastAction && (toastAction.onclick = null);
+};
+
+const applySearchFilter = (entries, query) => {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) {
+    return entries;
+  }
+  return entries.filter((project) => {
+    const haystack = `${project.name} ${project.owner}`.toLowerCase();
+    return haystack.includes(trimmed);
+  });
+};
+
+const ensureVisibleInContainer = (element, container) => {
+  if (!element || !container) {
+    return;
+  }
+  const elementRect = element.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const isAbove = elementRect.top < containerRect.top;
+  const isBelow = elementRect.bottom > containerRect.bottom;
+  if (isAbove || isBelow) {
+    element.scrollIntoView({ block: "nearest" });
+  }
+};
+
+const syncSearchInputs = (value, source) => {
+  if (searchInputTop && source !== searchInputTop) {
+    searchInputTop.value = value;
+  }
+  if (searchInputDrawer && source !== searchInputDrawer) {
+    searchInputDrawer.value = value;
+  }
+};
+
+const setSearchQuery = (value, source) => {
+  searchQuery = value;
+  syncSearchInputs(value, source);
+  render();
+};
+
+const buildExportPayload = () => ({
+  schemaVersion: SCHEMA_VERSION,
+  exportedAt: getNowISO(),
+  projects,
+});
+
+const downloadJSON = (payload, filename) => {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const normalizeImportPayload = (payload) => {
+  if (Array.isArray(payload)) {
+    return payload.map(normalizeProject);
+  }
+  if (payload && typeof payload === "object") {
+    const schemaVersion =
+      typeof payload.schemaVersion === "number" ? payload.schemaVersion : SCHEMA_VERSION;
+    if (schemaVersion !== SCHEMA_VERSION) {
+      throw new Error("Unsupported schema version");
+    }
+    if (!Array.isArray(payload.projects)) {
+      throw new Error("Import payload missing projects");
+    }
+    const list = payload.projects;
+    return list.map(normalizeProject);
+  }
+  throw new Error("Invalid import payload");
+};
+
+const mergeImportedProjects = (current, incoming) => {
+  const merged = new Map(current.map((project) => [project.id, project]));
+  // Imported records overwrite matching ids to keep the latest incoming data.
+  incoming.forEach((project) => {
+    merged.set(project.id, project);
+  });
+  return Array.from(merged.values());
+};
+
+const undoLastDoneAction = () => {
+  if (!lastDoneAction) {
+    return;
+  }
+
+  const { projectId, previousPhase, previousView } = lastDoneAction;
+  const now = getNowISO();
+  let updatedProject = null;
+  projects = projects.map((project) => {
+    if (project.id !== projectId) {
+      return project;
+    }
+    const history = Array.isArray(project.phaseHistory) ? project.phaseHistory : [];
+    updatedProject = {
+      ...project,
+      phase: previousPhase,
+      lastUpdated: now,
+      phaseHistory: [...history, { from: project.phase, to: previousPhase, atISO: now }],
+    };
+    return updatedProject;
+  });
+
+  if (!updatedProject) {
+    lastDoneAction = null;
+    return;
+  }
+
+  saveProjects(projects);
+  currentView = previousView;
+  syncViewUI();
+  if (selectedProjectId === projectId) {
+    inspectorNotesPhase = previousPhase;
+  }
+  lastDoneAction = null;
+  render();
+};
+
 const render = () => {
   const dashboardProjects = getDashboardProjects(projects);
   updateCapacityIndicator(dashboardProjects.length);
 
-  const visibleProjects = applySort(getProjectsForView(projects, currentView), currentSortMode);
+  const viewProjects = getProjectsForView(projects, currentView);
+  const filteredProjects = applySearchFilter(viewProjects, searchQuery);
+  const visibleProjects = applySort(filteredProjects, currentSortMode);
   const stateCopy = EMPTY_STATE_COPY[currentView] || EMPTY_STATE_COPY.dashboard;
+  const isSearching = Boolean(searchQuery.trim());
+  const emptyCopy = isSearching
+    ? {
+        title: "No matching projects",
+        hint: "Try a different name or owner.",
+      }
+    : stateCopy;
 
   if (emptyStateLabel) {
-    emptyStateLabel.textContent = stateCopy.title;
+    emptyStateLabel.textContent = emptyCopy.title;
   }
 
   if (emptyStateHint) {
-    emptyStateHint.textContent = stateCopy.hint;
+    emptyStateHint.textContent = emptyCopy.hint;
   }
 
   if (emptyState) {
@@ -520,13 +798,23 @@ const render = () => {
   projectsGrid.innerHTML = "";
 
   visibleProjects.forEach((project) => {
-    const card = document.createElement("article");
-    card.className = "project-card";
-    card.dataset.phase = project.phase;
-    if (project.id === selectedProjectId) {
-      card.classList.add("is-selected");
+  const card = document.createElement("article");
+  card.className = "project-card";
+  card.dataset.phase = project.phase;
+  card.dataset.projectId = project.id;
+  if (project.id === selectedProjectId) {
+    card.classList.add("is-selected");
+  }
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-pressed", project.id === selectedProjectId ? "true" : "false");
+  card.addEventListener("click", () => openInspectorForProject(project.id, card));
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openInspectorForProject(project.id, card);
     }
-    card.addEventListener("click", () => openInspectorForProject(project.id));
+  });
 
     const content = document.createElement("div");
     content.className = "project-card__content";
@@ -626,7 +914,7 @@ const cancelPendingAction = () => {
   inspectorAbandonConfirm?.classList.remove("is-visible");
 };
 
-const openInspectorForProject = (projectId) => {
+const openInspectorForProject = (projectId, focusOrigin = null) => {
   const project = projects.find((item) => item.id === projectId);
   if (!project || !mainContent) {
     closeInspector();
@@ -634,12 +922,30 @@ const openInspectorForProject = (projectId) => {
     return;
   }
 
+  if (isMobile()) {
+    closeLeftRail({ restoreFocus: false });
+  }
+
   selectedProjectId = projectId;
   inspectorNotesPhase = project.phase;
   mainContent.dataset.inspectorOpen = "true";
-  clearDoneTransition(projectId);
   cancelPendingAction();
+  if (focusOrigin instanceof HTMLElement) {
+    inspectorReturnFocus = focusOrigin;
+  }
   render();
+  if (isMobile()) {
+    showBackdrop(inspectorBackdrop, true);
+    rightInspector?.setAttribute("role", "dialog");
+    rightInspector?.setAttribute("aria-modal", "true");
+    activateFocusTrap(rightInspector, {
+      onClose: () => {
+        closeInspector();
+        render();
+      },
+      initialFocusEl: inspectorCloseButton || inspectorNameInput,
+    });
+  }
 };
 
 const closeInspector = () => {
@@ -648,6 +954,17 @@ const closeInspector = () => {
     mainContent.dataset.inspectorOpen = "false";
   }
   cancelPendingAction();
+  showBackdrop(inspectorBackdrop, false);
+  if (activeTrap?.container === rightInspector) {
+    lastFocusedElement = null;
+    deactivateFocusTrap();
+  }
+  rightInspector?.removeAttribute("role");
+  rightInspector?.removeAttribute("aria-modal");
+  if (inspectorReturnFocus instanceof HTMLElement && document.contains(inspectorReturnFocus)) {
+    inspectorReturnFocus.focus();
+  }
+  inspectorReturnFocus = null;
 };
 
 const renderInspector = () => {
@@ -675,11 +992,24 @@ const renderInspector = () => {
   }
   notesTabButtons.forEach((button) => {
     const phase = button.dataset.notesPhase;
-    button.classList.toggle("is-active", phase === inspectorNotesPhase);
+    const isActive = phase === inspectorNotesPhase;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+    button.tabIndex = isActive ? 0 : -1;
+    const panel = notesPanels.find((item) => item.querySelector(`[data-notes-panel="${phase}"]`));
+    if (panel) {
+      button.setAttribute("aria-controls", panel.id);
+      panel.hidden = !isActive;
+    }
   });
-  if (inspectorNotesTextarea) {
-    inspectorNotesTextarea.value = project.notesByPhase?.[inspectorNotesPhase] || "";
-  }
+  notesTextareas.forEach((textarea) => {
+    const phase = textarea.dataset.notesPanel;
+    if (!phase) {
+      return;
+    }
+    textarea.value = project.notesByPhase?.[phase] || "";
+  });
 
   if (inspectorHistoryList) {
     const history = Array.isArray(project.phaseHistory) ? project.phaseHistory.slice().reverse() : [];
@@ -733,7 +1063,6 @@ const handleRestoreProject = (project) => {
 
   projects = nextProjects;
   saveProjects(projects);
-  clearDoneTransition(project.id);
   cancelPendingAction();
   closeInspector();
   render();
@@ -741,7 +1070,6 @@ const handleRestoreProject = (project) => {
 
 const performDeleteProject = (projectId) => {
   projects = projects.filter((project) => project.id !== projectId);
-  clearDoneTransition(projectId);
   saveProjects(projects);
   if (selectedProjectId === projectId) {
     closeInspector();
@@ -771,7 +1099,6 @@ const performAbandonProject = (projectId) => {
           lastUpdated: now,
         }
   );
-  clearDoneTransition(projectId);
   saveProjects(projects);
   pendingAction = null;
   closeInspector();
@@ -856,26 +1183,60 @@ if (sortSelect) {
   sortSelect.value = currentSortMode;
 }
 render();
+syncSearchInputs(searchQuery);
+
+const openLeftRail = () => {
+  if (!mainContent) {
+    return;
+  }
+
+  mainContent.dataset.railOpen = "true";
+  document.body.dataset.railOpen = "true";
+  settingsButton?.setAttribute("aria-pressed", "true");
+
+  if (isMobile()) {
+    showBackdrop(railBackdrop, true);
+    leftRail?.setAttribute("role", "dialog");
+    leftRail?.setAttribute("aria-modal", "true");
+    activateFocusTrap(leftRail, {
+      onClose: () => closeLeftRail(),
+      initialFocusEl: searchInputDrawer || leftRail?.querySelector("button"),
+    });
+  }
+};
+
+const closeLeftRail = ({ restoreFocus = true } = {}) => {
+  if (!mainContent) {
+    return;
+  }
+
+  mainContent.dataset.railOpen = "false";
+  document.body.dataset.railOpen = "false";
+  settingsButton?.setAttribute("aria-pressed", "false");
+
+  showBackdrop(railBackdrop, false);
+  if (activeTrap?.container === leftRail) {
+    if (!restoreFocus) {
+      lastFocusedElement = null;
+    }
+    deactivateFocusTrap();
+  }
+  leftRail?.removeAttribute("role");
+  leftRail?.removeAttribute("aria-modal");
+  if (restoreFocus && settingsButton) {
+    settingsButton.focus();
+  }
+};
 
 const toggleLeftRail = () => {
   if (!mainContent) {
     return;
   }
-
   const isOpen = mainContent.dataset.railOpen === "true";
-  const nextState = isOpen ? "false" : "true";
-  mainContent.dataset.railOpen = nextState;
-  settingsButton?.setAttribute("aria-pressed", nextState);
-};
-
-const closeLeftRail = () => {
-  if (!mainContent) {
-    return;
-  }
-
-  if (mainContent.dataset.railOpen === "true") {
-    mainContent.dataset.railOpen = "false";
-    settingsButton?.setAttribute("aria-pressed", "false");
+  if (isOpen) {
+    closeLeftRail();
+  } else {
+    openLeftRail();
   }
 };
 
@@ -883,10 +1244,143 @@ settingsButton?.addEventListener("click", () => {
   toggleLeftRail();
 });
 
+railBackdrop?.addEventListener("click", () => {
+  closeLeftRail();
+});
+
+inspectorBackdrop?.addEventListener("click", () => {
+  closeInspector();
+  render();
+});
+
+modalBackdrop?.addEventListener("click", () => {
+  if (importModal && !importModal.hidden) {
+    closeModal(importModal);
+  }
+  if (helpModal && !helpModal.hidden) {
+    closeModal(helpModal);
+  }
+});
+
 themeButton?.addEventListener("click", () => {
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   currentTheme = applyTheme(nextTheme, themeButton);
   saveTheme(currentTheme);
+});
+
+[searchInputTop, searchInputDrawer].forEach((input) => {
+  if (!input) {
+    return;
+  }
+  input.addEventListener("input", (event) => {
+    setSearchQuery(event.currentTarget.value, input);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSearchQuery("", input);
+    }
+  });
+});
+
+const handleExport = () => {
+  closeLeftRail({ restoreFocus: false });
+  const payload = buildExportPayload();
+  const dateStamp = new Date().toISOString().split("T")[0];
+  downloadJSON(payload, `project-phase-tracker-export-${dateStamp}.json`);
+  showToast({ message: "Export ready." });
+};
+
+[exportButton, exportButtonDrawer].forEach((button) => {
+  button?.addEventListener("click", handleExport);
+});
+
+const handleImportClick = () => {
+  closeLeftRail({ restoreFocus: false });
+  if (importFileInput) {
+    importFileInput.value = "";
+    importFileInput.click();
+  }
+};
+
+[importButton, importButtonDrawer].forEach((button) => {
+  button?.addEventListener("click", handleImportClick);
+});
+
+[helpButton, helpButtonDrawer].forEach((button) => {
+  button?.addEventListener("click", () => {
+    closeLeftRail({ restoreFocus: false });
+    openModal(helpModal, helpCloseButton || helpModal?.querySelector("button"));
+  });
+});
+
+helpCloseButton?.addEventListener("click", () => {
+  closeModal(helpModal);
+});
+
+importCloseButton?.addEventListener("click", () => {
+  closeModal(importModal);
+  pendingImport = null;
+});
+
+importFileInput?.addEventListener("change", (event) => {
+  const [file] = event.target.files || [];
+  if (!file) {
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const raw = typeof reader.result === "string" ? reader.result : "";
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeImportPayload(parsed);
+      pendingImport = normalized;
+      openModal(importModal, importMergeButton || importReplaceButton);
+    } catch (error) {
+      console.warn("[Project Phase Tracker] Import failed.", error);
+      showToast({ message: "Import failed. Check the file format." });
+    }
+  };
+  reader.readAsText(file);
+});
+
+importMergeButton?.addEventListener("click", () => {
+  if (!pendingImport) {
+    return;
+  }
+  projects = mergeImportedProjects(projects, pendingImport);
+  saveProjects(projects);
+  logProjectCounts(projects);
+  pendingImport = null;
+  closeModal(importModal);
+  render();
+  showToast({ message: "Import successful." });
+});
+
+importReplaceButton?.addEventListener("click", () => {
+  if (!pendingImport) {
+    return;
+  }
+  projects = pendingImport;
+  saveProjects(projects);
+  logProjectCounts(projects);
+  pendingImport = null;
+  closeModal(importModal);
+  render();
+  showToast({ message: "Import successful." });
+});
+
+window.addEventListener("resize", () => {
+  if (isMobile()) {
+    showBackdrop(railBackdrop, mainContent?.dataset.railOpen === "true");
+    showBackdrop(inspectorBackdrop, mainContent?.dataset.inspectorOpen === "true");
+  } else {
+    showBackdrop(railBackdrop, false);
+    showBackdrop(inspectorBackdrop, false);
+  if (activeTrap?.container === leftRail || activeTrap?.container === rightInspector) {
+    deactivateFocusTrap();
+  }
+  }
 });
 
 viewButtons.forEach((button) => {
@@ -896,7 +1390,7 @@ viewButtons.forEach((button) => {
       return;
     }
     setView(viewOption);
-    closeLeftRail();
+    closeLeftRail({ restoreFocus: false });
   });
 });
 
@@ -910,10 +1404,68 @@ sortSelect?.addEventListener("change", (event) => {
   render();
 });
 
+const setNotesPhase = (phase, { focusTab = false } = {}) => {
+  if (!VALID_PHASES.includes(phase)) {
+    return;
+  }
+  inspectorNotesPhase = phase;
+  renderInspector();
+  if (focusTab) {
+    const targetTab = notesTabButtons.find((button) => button.dataset.notesPhase === phase);
+    targetTab?.focus();
+  }
+};
+
+const handleNotesTabKeydown = (event) => {
+  const currentIndex = notesTabButtons.indexOf(event.currentTarget);
+  if (currentIndex === -1) {
+    return;
+  }
+  const lastIndex = notesTabButtons.length - 1;
+  let nextIndex = currentIndex;
+
+  switch (event.key) {
+    case "ArrowRight":
+      nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+      break;
+    case "ArrowLeft":
+      nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+      break;
+    case "Home":
+      nextIndex = 0;
+      break;
+    case "End":
+      nextIndex = lastIndex;
+      break;
+    case "Enter":
+    case " ":
+      event.preventDefault();
+      setNotesPhase(event.currentTarget.dataset.notesPhase || "Idea");
+      return;
+    default:
+      return;
+  }
+
+  event.preventDefault();
+  const nextTab = notesTabButtons[nextIndex];
+  if (nextTab) {
+    setNotesPhase(nextTab.dataset.notesPhase || "Idea", { focusTab: true });
+  }
+};
+
 notesTabButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    inspectorNotesPhase = button.dataset.notesPhase || "Idea";
-    renderInspector();
+    setNotesPhase(button.dataset.notesPhase || "Idea");
+  });
+  button.addEventListener("keydown", handleNotesTabKeydown);
+});
+
+Array.from(rightInspector?.querySelectorAll("input, textarea, select") || []).forEach((field) => {
+  field.addEventListener("focus", (event) => {
+    if (isMobile()) {
+      const scrollContainer = rightInspector?.querySelector(".right-inspector__body") || rightInspector;
+      ensureVisibleInContainer(event.currentTarget, scrollContainer);
+    }
   });
 });
 
@@ -958,28 +1510,37 @@ inspectorClearDueDateButton?.addEventListener("click", () => {
   render();
 });
 
-inspectorNotesTextarea?.addEventListener("input", (event) => {
-  if (!selectedProjectId) {
-    return;
-  }
-  const project = projects.find((entry) => entry.id === selectedProjectId);
-  if (!project) {
-    return;
-  }
-  const nextNotes = {
-    ...project.notesByPhase,
-    [inspectorNotesPhase]: event.currentTarget.value,
-  };
-  applyProjectPatch(selectedProjectId, { notesByPhase: nextNotes }, { skipRender: true });
+notesTextareas.forEach((textarea) => {
+  textarea.addEventListener("input", (event) => {
+    if (!selectedProjectId) {
+      return;
+    }
+    const phase = event.currentTarget.dataset.notesPanel;
+    const project = projects.find((entry) => entry.id === selectedProjectId);
+    if (!project || !phase) {
+      return;
+    }
+    const nextNotes = {
+      ...project.notesByPhase,
+      [phase]: event.currentTarget.value,
+    };
+    applyProjectPatch(selectedProjectId, { notesByPhase: nextNotes }, { skipRender: true });
+  });
+  textarea.addEventListener("blur", () => render());
+  textarea.addEventListener("focus", (event) => {
+    if (isMobile()) {
+      const scrollContainer = rightInspector?.querySelector(".right-inspector__body") || rightInspector;
+      ensureVisibleInContainer(event.currentTarget, scrollContainer);
+    }
+  });
 });
-inspectorNotesTextarea?.addEventListener("blur", () => render());
 
 inspectorPhaseSelect?.addEventListener("change", (event) => {
   if (!selectedProjectId) {
     return;
   }
   const nextPhase = event.currentTarget.value;
-  inspectorNotesPhase = nextPhase;
+  setNotesPhase(nextPhase);
   changeProjectPhase(selectedProjectId, nextPhase);
 });
 
@@ -1022,6 +1583,17 @@ const isEditableField = (element) => {
 };
 
 document.addEventListener("keydown", (event) => {
+  if (activeTrap) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      activeTrap.onClose?.();
+      return;
+    }
+    if (handleTrapKeydown(event)) {
+      return;
+    }
+  }
+
   const inspectorActive = mainContent?.dataset.inspectorOpen === "true" && Boolean(selectedProjectId);
   if (inspectorActive) {
     if (event.key === "Escape") {
@@ -1041,7 +1613,7 @@ document.addEventListener("keydown", (event) => {
       const mappedPhase = shortcutMap[event.key];
       if (mappedPhase) {
         event.preventDefault();
-        inspectorNotesPhase = mappedPhase;
+        setNotesPhase(mappedPhase);
         changeProjectPhase(selectedProjectId, mappedPhase);
         return;
       }

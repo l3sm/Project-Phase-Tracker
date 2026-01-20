@@ -54,6 +54,16 @@
           </button>
         </div>
         <div class="top-bar__right">
+          <label class="search-control">
+            <span class="search-control__label">Search</span>
+            <input
+              id="searchInputTop"
+              class="search-control__input"
+              type="search"
+              placeholder="Search projects (name or owner)"
+              aria-label="Search projects (name or owner)"
+            />
+          </label>
           <label class="sort-control">
             <span class="sort-control__label">Sort</span>
             <select id="sortSelect" class="sort-control__select" aria-label="Sort projects">
@@ -72,6 +82,17 @@
               aria-live="assertive"
               hidden
             ></span>
+          </div>
+          <div class="top-bar__actions">
+            <button id="btnExport" class="icon-button icon-button--text" type="button" aria-label="Export projects">
+              Export
+            </button>
+            <button id="btnImport" class="icon-button icon-button--text" type="button" aria-label="Import projects">
+              Import
+            </button>
+            <button id="btnHelp" class="icon-button icon-button--text" type="button" aria-label="Help and about">
+              Help
+            </button>
           </div>
           <button id="btnCreate" class="fab-button" aria-label="Create new project">
             +
@@ -108,6 +129,29 @@
                 Abandoned
               </button>
             </nav>
+            <div class="left-rail__actions">
+              <label class="search-control search-control--rail">
+                <span class="search-control__label">Search</span>
+                <input
+                  id="searchInputDrawer"
+                  class="search-control__input"
+                  type="search"
+                  placeholder="Search projects (name or owner)"
+                  aria-label="Search projects (name or owner)"
+                />
+              </label>
+              <div class="left-rail__buttons">
+                <button id="btnExportDrawer" class="icon-button icon-button--text" type="button">
+                  Export
+                </button>
+                <button id="btnImportDrawer" class="icon-button icon-button--text" type="button">
+                  Import
+                </button>
+                <button id="btnHelpDrawer" class="icon-button icon-button--text" type="button">
+                  Help
+                </button>
+              </div>
+            </div>
           </aside>
 
           <div class="canvas-center">
@@ -163,12 +207,68 @@
                 <section class="inspector-section">
                   <p class="inspector-section__title">Notes</p>
                   <div class="notes-tablist" role="tablist">
-                    <button type="button" class="notes-tab" data-notes-phase="Idea">Idea</button>
-                    <button type="button" class="notes-tab" data-notes-phase="Build">Build</button>
-                    <button type="button" class="notes-tab" data-notes-phase="Fix">Fix</button>
-                    <button type="button" class="notes-tab" data-notes-phase="Done">Done</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Idea" id="notesTabIdea">Idea</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Build" id="notesTabBuild">Build</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Fix" id="notesTabFix">Fix</button>
+                    <button type="button" class="notes-tab" data-notes-phase="Done" id="notesTabDone">Done</button>
                   </div>
-                  <textarea id="inspectorNotes" placeholder="Enter phase specific notes"></textarea>
+                  <div class="notes-panels">
+                    <div
+                      class="notes-panel"
+                      id="notesPanelIdea"
+                      role="tabpanel"
+                      aria-labelledby="notesTabIdea"
+                    >
+                      <textarea
+                        id="inspectorNotesIdea"
+                        data-notes-panel="Idea"
+                        placeholder="Enter phase specific notes"
+                        aria-label="Notes for Idea phase"
+                      ></textarea>
+                    </div>
+                    <div
+                      class="notes-panel"
+                      id="notesPanelBuild"
+                      role="tabpanel"
+                      aria-labelledby="notesTabBuild"
+                      hidden
+                    >
+                      <textarea
+                        id="inspectorNotesBuild"
+                        data-notes-panel="Build"
+                        placeholder="Enter phase specific notes"
+                        aria-label="Notes for Build phase"
+                      ></textarea>
+                    </div>
+                    <div
+                      class="notes-panel"
+                      id="notesPanelFix"
+                      role="tabpanel"
+                      aria-labelledby="notesTabFix"
+                      hidden
+                    >
+                      <textarea
+                        id="inspectorNotesFix"
+                        data-notes-panel="Fix"
+                        placeholder="Enter phase specific notes"
+                        aria-label="Notes for Fix phase"
+                      ></textarea>
+                    </div>
+                    <div
+                      class="notes-panel"
+                      id="notesPanelDone"
+                      role="tabpanel"
+                      aria-labelledby="notesTabDone"
+                      hidden
+                    >
+                      <textarea
+                        id="inspectorNotesDone"
+                        data-notes-panel="Done"
+                        placeholder="Enter phase specific notes"
+                        aria-label="Notes for Done phase"
+                      ></textarea>
+                    </div>
+                  </div>
                 </section>
                 <section class="inspector-section inspector-history">
                   <p class="inspector-section__title">Phase history</p>
@@ -198,6 +298,54 @@
           </aside>
         </div>
       </main>
+    </div>
+    <input id="importFileInput" type="file" accept="application/json" hidden />
+    <div id="railBackdrop" class="overlay-backdrop" hidden></div>
+    <div id="inspectorBackdrop" class="overlay-backdrop" hidden></div>
+    <div id="modalBackdrop" class="overlay-backdrop" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toastMessage" class="toast__message"></span>
+      <button id="toastAction" class="toast__action" type="button">Undo</button>
+    </div>
+    <div id="importModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="importTitle" hidden>
+      <div class="modal__content">
+        <header class="modal__header">
+          <h2 id="importTitle" class="modal__title">Import projects</h2>
+          <button id="importClose" class="icon-button" type="button" aria-label="Close import dialog">×</button>
+        </header>
+        <p class="modal__copy">
+          Choose how to import your projects. Merge keeps existing items, Replace overwrites everything.
+        </p>
+        <div class="modal__actions">
+          <button id="importMerge" class="icon-button icon-button--text" type="button">Merge</button>
+          <button id="importReplace" class="icon-button icon-button--text" type="button">Replace</button>
+        </div>
+      </div>
+    </div>
+    <div id="helpModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+      <div class="modal__content">
+        <header class="modal__header">
+          <h2 id="helpTitle" class="modal__title">Help &amp; about</h2>
+          <button id="helpClose" class="icon-button" type="button" aria-label="Close help dialog">×</button>
+        </header>
+        <div class="modal__body">
+          <p>
+            Project Phase Tracker keeps a lightweight view of active, completed, and abandoned work.
+          </p>
+          <h3 class="modal__subtitle">Keyboard shortcuts</h3>
+          <ul class="modal__list">
+            <li>Esc closes dialogs and overlays</li>
+            <li>1-4 set phase (Idea, Build, Fix, Done)</li>
+            <li>Enter/Space selects a project card</li>
+            <li>Arrow keys navigate notes tabs</li>
+          </ul>
+          <h3 class="modal__subtitle">Data storage</h3>
+          <p>
+            Your projects are stored locally in your browser (localStorage). Clearing site data will
+            remove them. Use Export/Import for backup.
+          </p>
+        </div>
+      </div>
     </div>
     <script src="app.js"></script>
   </body>
