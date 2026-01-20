@@ -1,6 +1,7 @@
 const STORAGE_KEY = "projectPhaseTracker.projects.v1";
 const SORT_STORAGE_KEY = "projectPhaseTracker.sortMode.v1";
 const THEME_STORAGE_KEY = "projectPhaseTracker.theme.v1";
+const APP_VERSION = "1.0";
 const VALID_PHASES = ["Idea", "Build", "Fix", "Done"];
 const PROJECT_LIMIT = 16;
 const VIEW_STATES = ["dashboard", "completed", "abandoned"];
@@ -352,19 +353,29 @@ const createProject = ({
   name,
   phase,
   owner = "",
+  notesByPhase,
   notes = "",
   dueDate = "",
   lastUpdated,
 } = {}) => {
   const now = getNowISO();
+  const normalizedName = normalizeText(name);
+  if (!normalizedName) {
+    return null;
+  }
   const normalizedPhase = VALID_PHASES.includes(phase) ? phase : "Idea";
+  const normalizedNotesByPhase = buildNotesByPhase(
+    normalizedPhase,
+    notesByPhase,
+    normalizeText(notes)
+  );
 
   return {
     id: generateId(),
-    name: normalizeText(name) || `New Project ${new Date().toLocaleString()}`,
+    name: normalizedName,
     phase: normalizedPhase,
     owner: normalizeText(owner),
-    notesByPhase: buildNotesByPhase(normalizedPhase, null, normalizeText(notes)),
+    notesByPhase: normalizedNotesByPhase,
     dueDate: normalizeDueDate(dueDate),
     phaseHistory: [],
     status: "active",
@@ -381,6 +392,25 @@ const upsertProject = (projects, project) => {
   }
 
   return [...projects, project];
+};
+
+const createDraftProject = () => ({
+  name: "",
+  phase: "Idea",
+  owner: "",
+  notesByPhase: buildNotesByPhase("Idea", null, ""),
+  dueDate: "",
+});
+
+const updateDraftProject = (changes) => {
+  if (!draftProject) {
+    return;
+  }
+  draftProject = { ...draftProject, ...changes };
+};
+
+const cancelDraftProject = () => {
+  draftProject = null;
 };
 
 const projectsGrid = document.getElementById("projectsGrid");
@@ -410,6 +440,7 @@ const importMergeButton = document.getElementById("importMerge");
 const importReplaceButton = document.getElementById("importReplace");
 const helpModal = document.getElementById("helpModal");
 const helpCloseButton = document.getElementById("helpClose");
+const helpVersionLabel = document.getElementById("helpVersion");
 const toast = document.getElementById("toast");
 const toastMessage = document.getElementById("toastMessage");
 const toastAction = document.getElementById("toastAction");
@@ -417,6 +448,9 @@ const viewButtons = Array.from(document.querySelectorAll("[data-view-option]"));
 let currentView = "dashboard";
 let currentSortMode = loadSortMode();
 let searchQuery = "";
+if (helpVersionLabel) {
+  helpVersionLabel.textContent = `Version ${APP_VERSION}`;
+}
 const EMPTY_STATE_COPY = {
   dashboard: {
     title: "No projects yet",
@@ -431,6 +465,10 @@ const EMPTY_STATE_COPY = {
     hint: "Abandoned projects will appear here.",
   },
 };
+const FIRST_TIME_EMPTY_COPY = {
+  title: "Create your first project to get started.",
+  hint: "Projects move through Idea → Build → Fix → Done.",
+};
 
 const leftRail = document.querySelector(".left-rail");
 const rightInspector = document.querySelector(".right-inspector");
@@ -443,12 +481,14 @@ const inspectorHistoryList = document.getElementById("inspectorHistoryList");
 const inspectorCreated = document.getElementById("inspectorCreated");
 const inspectorUpdated = document.getElementById("inspectorUpdated");
 const inspectorCloseButton = document.getElementById("inspectorClose");
+const inspectorCreateButton = document.getElementById("inspectorCreate");
 const inspectorAbandonButton = document.getElementById("inspectorAbandon");
 const inspectorAbandonConfirm = document.getElementById("inspectorAbandonConfirm");
 const notesTabButtons = Array.from(document.querySelectorAll(".notes-tab"));
 const notesPanels = Array.from(document.querySelectorAll(".notes-panel"));
 const notesTextareas = Array.from(document.querySelectorAll("[data-notes-panel]"));
 let selectedProjectId = null;
+let draftProject = null;
 let inspectorNotesPhase = "Idea";
 let pendingAction = null;
 let lastDoneAction = null;
@@ -771,12 +811,15 @@ const render = () => {
   const visibleProjects = applySort(filteredProjects, currentSortMode);
   const stateCopy = EMPTY_STATE_COPY[currentView] || EMPTY_STATE_COPY.dashboard;
   const isSearching = Boolean(searchQuery.trim());
+  const isFirstTime = projects.length === 0 && currentView === "dashboard";
   const emptyCopy = isSearching
     ? {
         title: "No matching projects",
         hint: "Try a different name or owner.",
       }
-    : stateCopy;
+    : isFirstTime
+      ? FIRST_TIME_EMPTY_COPY
+      : stateCopy;
 
   if (emptyStateLabel) {
     emptyStateLabel.textContent = emptyCopy.title;
@@ -914,6 +957,42 @@ const cancelPendingAction = () => {
   inspectorAbandonConfirm?.classList.remove("is-visible");
 };
 
+const openDraftInspector = (focusOrigin = null) => {
+  if (!mainContent) {
+    return;
+  }
+
+  if (isMobile()) {
+    closeLeftRail({ restoreFocus: false });
+  }
+
+  draftProject = createDraftProject();
+  selectedProjectId = null;
+  inspectorNotesPhase = "Idea";
+  mainContent.dataset.inspectorOpen = "true";
+  cancelPendingAction();
+  if (focusOrigin instanceof HTMLElement) {
+    inspectorReturnFocus = focusOrigin;
+  }
+  render();
+  if (isMobile()) {
+    showBackdrop(inspectorBackdrop, true);
+    rightInspector?.setAttribute("role", "dialog");
+    rightInspector?.setAttribute("aria-modal", "true");
+    activateFocusTrap(rightInspector, {
+      onClose: () => {
+        closeInspector();
+        render();
+      },
+      initialFocusEl: inspectorNameInput || inspectorCloseButton,
+    });
+  }
+
+  requestAnimationFrame(() => {
+    inspectorNameInput?.focus();
+  });
+};
+
 const openInspectorForProject = (projectId, focusOrigin = null) => {
   const project = projects.find((item) => item.id === projectId);
   if (!project || !mainContent) {
@@ -926,6 +1005,7 @@ const openInspectorForProject = (projectId, focusOrigin = null) => {
     closeLeftRail({ restoreFocus: false });
   }
 
+  cancelDraftProject();
   selectedProjectId = projectId;
   inspectorNotesPhase = project.phase;
   mainContent.dataset.inspectorOpen = "true";
@@ -949,6 +1029,7 @@ const openInspectorForProject = (projectId, focusOrigin = null) => {
 };
 
 const closeInspector = () => {
+  cancelDraftProject();
   selectedProjectId = null;
   if (mainContent) {
     mainContent.dataset.inspectorOpen = "false";
@@ -968,24 +1049,27 @@ const closeInspector = () => {
 };
 
 const renderInspector = () => {
-  if (!rightInspector || !selectedProjectId || mainContent?.dataset.inspectorOpen !== "true") {
+  if (!rightInspector || mainContent?.dataset.inspectorOpen !== "true") {
     return;
   }
 
-  const project = projects.find((item) => item.id === selectedProjectId);
+  const isDraft = !selectedProjectId && Boolean(draftProject);
+  const project = selectedProjectId
+    ? projects.find((item) => item.id === selectedProjectId)
+    : draftProject;
   if (!project) {
     closeInspector();
     return;
   }
 
   if (inspectorNameInput) {
-    inspectorNameInput.value = project.name;
+    inspectorNameInput.value = project.name || "";
   }
   if (inspectorOwnerInput) {
-    inspectorOwnerInput.value = project.owner;
+    inspectorOwnerInput.value = project.owner || "";
   }
   if (inspectorPhaseSelect) {
-    inspectorPhaseSelect.value = project.phase;
+    inspectorPhaseSelect.value = project.phase || "Idea";
   }
   if (inspectorDueDateInput) {
     inspectorDueDateInput.value = project.dueDate || "";
@@ -1012,23 +1096,40 @@ const renderInspector = () => {
   });
 
   if (inspectorHistoryList) {
-    const history = Array.isArray(project.phaseHistory) ? project.phaseHistory.slice().reverse() : [];
-    inspectorHistoryList.innerHTML = history
-      .map((entry) => {
-        const atLabel = entry.atISO ? new Date(entry.atISO).toLocaleString() : "Unknown";
-        return `<li>${entry.from} → ${entry.to} · ${atLabel}</li>`;
-      })
-      .join("");
+    if (isDraft) {
+      inspectorHistoryList.innerHTML = "";
+    } else {
+      const history = Array.isArray(project.phaseHistory) ? project.phaseHistory.slice().reverse() : [];
+      inspectorHistoryList.innerHTML = history
+        .map((entry) => {
+          const atLabel = entry.atISO ? new Date(entry.atISO).toLocaleString() : "Unknown";
+          return `<li>${entry.from} → ${entry.to} · ${atLabel}</li>`;
+        })
+        .join("");
+    }
   }
 
   if (inspectorCreated) {
-    inspectorCreated.textContent = new Date(project.createdAt).toLocaleDateString();
+    inspectorCreated.textContent = isDraft
+      ? "N/A"
+      : new Date(project.createdAt).toLocaleDateString();
   }
   if (inspectorUpdated) {
-    inspectorUpdated.textContent = formatRelativeTime(project.lastUpdated);
+    inspectorUpdated.textContent = isDraft ? "N/A" : formatRelativeTime(project.lastUpdated);
   }
 
-  const mustConfirmAbandon = pendingAction?.type === "abandon" && pendingAction.projectId === project.id;
+  if (inspectorCreateButton) {
+    inspectorCreateButton.hidden = !isDraft;
+  }
+  if (inspectorAbandonButton) {
+    inspectorAbandonButton.hidden = isDraft;
+  }
+  if (inspectorAbandonConfirm) {
+    inspectorAbandonConfirm.hidden = isDraft;
+  }
+
+  const mustConfirmAbandon =
+    !isDraft && pendingAction?.type === "abandon" && pendingAction.projectId === project.id;
   inspectorAbandonConfirm?.classList.toggle("is-visible", Boolean(mustConfirmAbandon));
 };
 
@@ -1117,6 +1218,44 @@ const handleAbandonClick = () => {
 
   pendingAction = { type: "abandon", projectId: selectedProjectId };
   inspectorAbandonConfirm?.classList.add("is-visible");
+};
+
+const confirmDraftProject = () => {
+  if (!draftProject) {
+    return;
+  }
+
+  const nameValue = normalizeText(inspectorNameInput?.value || draftProject.name);
+  if (!nameValue) {
+    showToast({ message: "Enter a project name to create." });
+    inspectorNameInput?.focus();
+    return;
+  }
+
+  if (!canCreateNewProject(projects)) {
+    showCapacityFeedback(`Maximum of ${PROJECT_LIMIT} active projects reached`);
+    return;
+  }
+
+  const nextProject = createProject({
+    name: nameValue,
+    phase: draftProject.phase,
+    owner: draftProject.owner,
+    notesByPhase: draftProject.notesByPhase,
+    dueDate: draftProject.dueDate,
+  });
+
+  if (!nextProject) {
+    return;
+  }
+
+  projects = upsertProject(projects, nextProject);
+  saveProjects(projects);
+  logProjectCounts(projects);
+  selectedProjectId = nextProject.id;
+  draftProject = null;
+  inspectorNotesPhase = nextProject.phase;
+  render();
 };
 
 const executePendingAction = () => {
@@ -1470,39 +1609,57 @@ Array.from(rightInspector?.querySelectorAll("input, textarea, select") || []).fo
 });
 
 inspectorNameInput?.addEventListener("input", (event) => {
+  const nextName = normalizeText(event.currentTarget.value);
+  if (draftProject) {
+    updateDraftProject({ name: nextName });
+    return;
+  }
   if (!selectedProjectId) {
     return;
   }
-  applyProjectPatch(
-    selectedProjectId,
-    { name: normalizeText(event.currentTarget.value) },
-    { skipRender: true }
-  );
+  applyProjectPatch(selectedProjectId, { name: nextName }, { skipRender: true });
+});
+inspectorNameInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && draftProject) {
+    event.preventDefault();
+    confirmDraftProject();
+  }
 });
 inspectorNameInput?.addEventListener("blur", () => render());
 
 inspectorOwnerInput?.addEventListener("input", (event) => {
+  const nextOwner = normalizeText(event.currentTarget.value);
+  if (draftProject) {
+    updateDraftProject({ owner: nextOwner });
+    return;
+  }
   if (!selectedProjectId) {
     return;
   }
-  applyProjectPatch(
-    selectedProjectId,
-    { owner: normalizeText(event.currentTarget.value) },
-    { skipRender: true }
-  );
+  applyProjectPatch(selectedProjectId, { owner: nextOwner }, { skipRender: true });
 });
 inspectorOwnerInput?.addEventListener("blur", () => render());
 
 inspectorDueDateInput?.addEventListener("change", (event) => {
+  const value = event.currentTarget.value;
+  if (draftProject) {
+    updateDraftProject({ dueDate: normalizeDueDate(value) });
+    render();
+    return;
+  }
   if (!selectedProjectId) {
     return;
   }
-  const value = event.currentTarget.value;
   applyProjectPatch(selectedProjectId, { dueDate: normalizeDueDate(value) }, { skipRender: true });
   render();
 });
 
 inspectorClearDueDateButton?.addEventListener("click", () => {
+  if (draftProject) {
+    updateDraftProject({ dueDate: "" });
+    render();
+    return;
+  }
   if (!selectedProjectId) {
     return;
   }
@@ -1512,16 +1669,27 @@ inspectorClearDueDateButton?.addEventListener("click", () => {
 
 notesTextareas.forEach((textarea) => {
   textarea.addEventListener("input", (event) => {
+    const phase = event.currentTarget.dataset.notesPanel;
+    if (!phase || !VALID_PHASES.includes(phase)) {
+      return;
+    }
+    if (draftProject) {
+      const nextNotes = {
+        ...(draftProject.notesByPhase || {}),
+        [phase]: event.currentTarget.value,
+      };
+      updateDraftProject({ notesByPhase: nextNotes });
+      return;
+    }
     if (!selectedProjectId) {
       return;
     }
-    const phase = event.currentTarget.dataset.notesPanel;
     const project = projects.find((entry) => entry.id === selectedProjectId);
-    if (!project || !phase) {
+    if (!project) {
       return;
     }
     const nextNotes = {
-      ...project.notesByPhase,
+      ...(project.notesByPhase || {}),
       [phase]: event.currentTarget.value,
     };
     applyProjectPatch(selectedProjectId, { notesByPhase: nextNotes }, { skipRender: true });
@@ -1536,10 +1704,18 @@ notesTextareas.forEach((textarea) => {
 });
 
 inspectorPhaseSelect?.addEventListener("change", (event) => {
+  const nextPhase = event.currentTarget.value;
+  if (!VALID_PHASES.includes(nextPhase)) {
+    return;
+  }
+  if (draftProject) {
+    updateDraftProject({ phase: nextPhase });
+    setNotesPhase(nextPhase);
+    return;
+  }
   if (!selectedProjectId) {
     return;
   }
-  const nextPhase = event.currentTarget.value;
   setNotesPhase(nextPhase);
   changeProjectPhase(selectedProjectId, nextPhase);
 });
@@ -1549,24 +1725,14 @@ inspectorCloseButton?.addEventListener("click", () => {
   render();
 });
 
+inspectorCreateButton?.addEventListener("click", () => {
+  confirmDraftProject();
+});
+
 inspectorAbandonButton?.addEventListener("click", handleAbandonClick);
 
 createButton?.addEventListener("click", () => {
-  console.log("create clicked");
-
-  if (!canCreateNewProject(projects)) {
-    showCapacityFeedback(`Maximum of ${PROJECT_LIMIT} active projects reached`);
-    return;
-  }
-
-  const newProject = createProject({
-    name: `New Project ${new Date().toLocaleString()}`,
-  });
-
-  projects = upsertProject(projects, newProject);
-  saveProjects(projects);
-  logProjectCounts(projects);
-  render();
+  openDraftInspector(createButton);
 });
 
 const isEditableField = (element) => {
@@ -1594,8 +1760,9 @@ document.addEventListener("keydown", (event) => {
     }
   }
 
-  const inspectorActive = mainContent?.dataset.inspectorOpen === "true" && Boolean(selectedProjectId);
-  if (inspectorActive) {
+  const inspectorOpen = mainContent?.dataset.inspectorOpen === "true";
+  const hasSelectedProject = Boolean(selectedProjectId);
+  if (inspectorOpen) {
     if (event.key === "Escape") {
       event.preventDefault();
       closeInspector();
@@ -1603,7 +1770,7 @@ document.addEventListener("keydown", (event) => {
       return;
     }
 
-    if (!isEditableField(event.target)) {
+    if (hasSelectedProject && !isEditableField(event.target)) {
       const shortcutMap = {
         "1": "Idea",
         "2": "Build",
@@ -1619,13 +1786,20 @@ document.addEventListener("keydown", (event) => {
       }
     }
 
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    if (hasSelectedProject && (event.ctrlKey || event.metaKey) && event.key === "Enter") {
       if (!isEditableField(event.target)) {
         event.preventDefault();
         executePendingAction();
       }
       return;
     }
+  }
+
+  if (event.key === "Escape" && pendingAction) {
+    event.preventDefault();
+    cancelPendingAction();
+    render();
+    return;
   }
 
   if (event.shiftKey && event.key.toLowerCase() === "n") {
