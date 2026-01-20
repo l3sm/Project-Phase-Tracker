@@ -514,6 +514,9 @@ const updateCapacityIndicator = (activeCount) => {
   const isNear = !isFull && activeCount >= nearThreshold;
   capacityIndicator.dataset.full = isFull ? "true" : "false";
   capacityIndicator.dataset.urgency = isFull ? "full" : isNear ? "near" : "normal";
+  const fillPercent = Math.min(100, Math.round((activeCount / PROJECT_LIMIT) * 100));
+  capacityIndicator.style.setProperty("--capacity-fill", `${fillPercent}%`);
+  capacityIndicator.dataset.fillPercent = fillPercent.toString();
   if (createButton) {
     createButton.dataset.capacityState = isFull ? "full" : isNear ? "near" : "default";
   }
@@ -999,7 +1002,17 @@ const render = () => {
     }
   }
 
+  updateWorkspaceScrollCue();
   renderInspector();
+};
+
+const updateWorkspaceScrollCue = () => {
+  if (!canvasCenter) {
+    return;
+  }
+  const scrollable = canvasCenter.scrollHeight > canvasCenter.clientHeight + 4;
+  canvasCenter.dataset.scrollable = scrollable ? "true" : "false";
+  canvasCenter.dataset.scrolled = canvasCenter.scrollTop > 6 ? "true" : "false";
 };
 
 const cancelPendingAction = () => {
@@ -1572,7 +1585,10 @@ window.addEventListener("resize", () => {
     deactivateFocusTrap();
   }
   }
+  updateWorkspaceScrollCue();
 });
+
+canvasCenter?.addEventListener("scroll", updateWorkspaceScrollCue);
 
 viewButtons.forEach((button) => {
   button.addEventListener("click", () => {
