@@ -298,6 +298,12 @@ body {
 .capacity-indicator[data-full="true"] {
   color: #dc2626;
 }
+.capacity-indicator[data-urgency="near"] {
+  color: #d97706;
+}
+.capacity-indicator[data-urgency="full"] {
+  color: #b91c1c;
+}
 
 .capacity-feedback {
   font-size: 0.72rem;
@@ -314,7 +320,7 @@ body {
   color: inherit;
   cursor: pointer;
   transition: box-shadow var(--transition-fast), border-color var(--transition-fast),
-    transform var(--transition-fast);
+    transform var(--transition-fast), background var(--transition-fast);
 }
 
 .icon-button {
@@ -356,6 +362,20 @@ body {
 .fab-button:active {
   transform: scale(0.97);
   box-shadow: 0 6px 12px rgba(31, 35, 48, 0.1);
+}
+
+#btnCreate[data-capacity-state="full"] {
+  background: linear-gradient(135deg, #94a3b8, #64748b);
+  color: #e2e8f0;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.25);
+}
+
+#btnCreate[data-capacity-state="full"]:hover {
+  box-shadow: 0 8px 14px rgba(15, 23, 42, 0.22);
+}
+
+#btnCreate[data-capacity-state="near"] {
+  box-shadow: 0 14px 20px rgba(37, 99, 235, 0.18);
 }
 
 .main-content {
@@ -407,6 +427,38 @@ body {
   gap: 1.5rem;
   max-height: 100%;
   height: 100%;
+  position: relative;
+}
+
+.canvas-center::before,
+.canvas-center::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  border-radius: 20px;
+  transition: opacity var(--transition-base);
+}
+
+.canvas-center::before {
+  top: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.04);
+  opacity: 0;
+  z-index: 2;
+}
+
+.main-content[data-inspector-open="true"] .canvas-center::before {
+  opacity: 1;
+}
+
+.main-content[data-view="dashboard"] .canvas-center::after {
+  bottom: 0;
+  height: 60px;
+  background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.08));
+  opacity: 1;
+  z-index: 1;
 }
 
 .main-content[data-view="dashboard"] .workspace {
@@ -461,6 +513,8 @@ body {
 
 .left-rail__actions {
   margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-color-soft);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -541,6 +595,24 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.right-inspector__close {
+  border: 1px solid var(--border-color-soft);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.right-inspector__close:hover {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 3px var(--hover-ring);
+}
+
+.right-inspector__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .right-inspector__title-input {
@@ -723,6 +795,9 @@ body {
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color-soft);
   padding-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .inspector-meta__row {
@@ -730,6 +805,23 @@ body {
   justify-content: space-between;
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.inspector-saved-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--transition-base), transform var(--transition-base);
+}
+
+.inspector-saved-indicator.is-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .inspector-footer {
@@ -851,7 +943,9 @@ body {
   box-shadow: var(--shadow-card);
   position: relative;
   overflow: hidden;
-  transition: border-color var(--transition-base);
+  transition: border-color var(--transition-base), filter var(--transition-base),
+    box-shadow var(--transition-base);
+  filter: saturate(0.95) contrast(0.98);
 }
 
 .project-card::after {
@@ -874,6 +968,9 @@ body {
 .project-card.is-selected {
   --card-overlay-tint: var(--card-overlay-selected);
   --card-overlay-opacity: 1;
+  border-color: var(--rail-active-text);
+  box-shadow: inset 6px 0 0 0 rgba(37, 99, 235, 0.55), 0 20px 35px rgba(15, 23, 42, 0.25);
+  filter: none;
 }
 
 .project-card:hover {
@@ -966,6 +1063,62 @@ body {
   color: var(--text-muted);
 }
 
+.phase-anchor {
+  border-radius: 999px;
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+  width: 12px;
+  height: 12px;
+  background: var(--surface-1);
+  pointer-events: none;
+  transition: background var(--transition-base), box-shadow var(--transition-base);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phase-anchor--card {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 14px;
+  height: 14px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25);
+  z-index: 2;
+}
+
+.phase-anchor--inspector {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.phase-anchor--history {
+  width: 10px;
+  height: 10px;
+  margin-right: 0.4rem;
+}
+
+.phase-anchor[data-phase="Idea"] {
+  background: var(--phase-idea-border);
+  box-shadow: 0 0 0 2px rgba(58, 52, 121, 0.4);
+}
+
+.phase-anchor[data-phase="Build"] {
+  background: var(--phase-build-border);
+  box-shadow: 0 0 0 2px rgba(43, 120, 182, 0.4);
+}
+
+.phase-anchor[data-phase="Fix"] {
+  background: var(--phase-fix-border);
+  box-shadow: 0 0 0 2px rgba(190, 132, 24, 0.35);
+}
+
+.phase-anchor[data-phase="Done"] {
+  background: var(--phase-done-border);
+  box-shadow: 0 0 0 2px rgba(46, 97, 63, 0.4);
+}
+
 .project-card[data-phase="Idea"] {
   background-color: var(--phase-idea-bg);
   border-color: var(--phase-idea-border);
@@ -1014,6 +1167,7 @@ body {
   text-align: center;
   background: var(--empty-surface);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  position: relative;
 }
 
 .empty-state__label {
@@ -1025,6 +1179,48 @@ body {
 .empty-state__hint {
   margin: 0.25rem 0 0;
   color: var(--text-muted);
+}
+
+body[data-show-create-cue="true"] .empty-state::after {
+  content: "";
+  position: absolute;
+  top: -18px;
+  right: 40px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 12px solid rgba(37, 99, 235, 0.8);
+  opacity: 1;
+  animation: createCuePointer 1.4s ease 0s 3;
+}
+
+body[data-show-create-cue="true"] #btnCreate {
+  animation: createCuePulse 1.4s ease 0s 3;
+}
+
+@keyframes createCuePointer {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+}
+
+@keyframes createCuePulse {
+  0%,
+  100% {
+    box-shadow: 0 18px 30px rgba(37, 99, 235, 0.25);
+  }
+  50% {
+    box-shadow: 0 22px 34px rgba(37, 99, 235, 0.35);
+  }
 }
 
 .overlay-backdrop {

@@ -197,6 +197,7 @@ const loadProjects = () => {
 const saveProjects = (projects) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+    flashSaveIndicator();
   } catch (error) {
     console.warn("[Project Phase Tracker] Failed to save projects.", error);
   }
@@ -421,6 +422,7 @@ const capacityIndicator = document.getElementById("capacityIndicator");
 const capacityFeedback = document.getElementById("capacityFeedback");
 let capacityFeedbackTimer;
 const mainContent = document.querySelector(".main-content");
+const canvasCenter = document.querySelector(".canvas-center");
 const sortSelect = document.getElementById("sortSelect");
 const searchInputTop = document.getElementById("searchInputTop");
 const searchInputDrawer = document.getElementById("searchInputDrawer");
@@ -484,6 +486,8 @@ const inspectorCloseButton = document.getElementById("inspectorClose");
 const inspectorCreateButton = document.getElementById("inspectorCreate");
 const inspectorAbandonButton = document.getElementById("inspectorAbandon");
 const inspectorAbandonConfirm = document.getElementById("inspectorAbandonConfirm");
+const inspectorPhaseAnchor = document.getElementById("inspectorPhaseAnchor");
+const inspectorSavedIndicator = document.getElementById("inspectorSavedIndicator");
 const notesTabButtons = Array.from(document.querySelectorAll(".notes-tab"));
 const notesPanels = Array.from(document.querySelectorAll(".notes-panel"));
 const notesTextareas = Array.from(document.querySelectorAll("[data-notes-panel]"));
@@ -494,6 +498,7 @@ let pendingAction = null;
 let lastDoneAction = null;
 let pendingImport = null;
 let toastTimer;
+let savedIndicatorTimer;
 let activeTrap = null;
 let lastFocusedElement = null;
 let inspectorReturnFocus = null;
@@ -504,7 +509,14 @@ const updateCapacityIndicator = (activeCount) => {
   }
 
   capacityIndicator.textContent = `${activeCount} / ${PROJECT_LIMIT}`;
-  capacityIndicator.dataset.full = activeCount >= PROJECT_LIMIT ? "true" : "false";
+  const isFull = activeCount >= PROJECT_LIMIT;
+  const nearThreshold = Math.max(0, PROJECT_LIMIT - 2);
+  const isNear = !isFull && activeCount >= nearThreshold;
+  capacityIndicator.dataset.full = isFull ? "true" : "false";
+  capacityIndicator.dataset.urgency = isFull ? "full" : isNear ? "near" : "normal";
+  if (createButton) {
+    createButton.dataset.capacityState = isFull ? "full" : isNear ? "near" : "default";
+  }
 };
 
 const showCapacityFeedback = (message) => {
@@ -680,6 +692,19 @@ const hideToast = () => {
   toastAction && (toastAction.onclick = null);
 };
 
+const flashSaveIndicator = () => {
+  if (!inspectorSavedIndicator) {
+    return;
+  }
+  inspectorSavedIndicator.classList.add("is-visible");
+  if (savedIndicatorTimer) {
+    clearTimeout(savedIndicatorTimer);
+  }
+  savedIndicatorTimer = setTimeout(() => {
+    inspectorSavedIndicator.classList.remove("is-visible");
+  }, 1600);
+};
+
 const applySearchFilter = (entries, query) => {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) {
@@ -702,6 +727,16 @@ const ensureVisibleInContainer = (element, container) => {
   if (isAbove || isBelow) {
     element.scrollIntoView({ block: "nearest" });
   }
+};
+
+const ensureDashboardWorkspaceVisible = () => {
+  if (currentView !== "dashboard") {
+    setView("dashboard");
+  }
+  if (canvasCenter) {
+    canvasCenter.scrollTo({ top: 0 });
+  }
+  ensureVisibleInContainer(projectsGrid, canvasCenter);
 };
 
 const syncSearchInputs = (value, source) => {
@@ -841,23 +876,29 @@ const render = () => {
   projectsGrid.innerHTML = "";
 
   visibleProjects.forEach((project) => {
-  const card = document.createElement("article");
-  card.className = "project-card";
-  card.dataset.phase = project.phase;
-  card.dataset.projectId = project.id;
-  if (project.id === selectedProjectId) {
-    card.classList.add("is-selected");
-  }
-  card.tabIndex = 0;
-  card.setAttribute("role", "button");
-  card.setAttribute("aria-pressed", project.id === selectedProjectId ? "true" : "false");
-  card.addEventListener("click", () => openInspectorForProject(project.id, card));
-  card.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openInspectorForProject(project.id, card);
+    const card = document.createElement("article");
+    card.className = "project-card";
+    card.dataset.phase = project.phase;
+    card.dataset.projectId = project.id;
+    if (project.id === selectedProjectId) {
+      card.classList.add("is-selected");
     }
-  });
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-pressed", project.id === selectedProjectId ? "true" : "false");
+    const phaseAnchor = document.createElement("span");
+    phaseAnchor.className = "phase-anchor phase-anchor--card";
+    phaseAnchor.dataset.phase = project.phase;
+    phaseAnchor.setAttribute("title", project.phase);
+    phaseAnchor.setAttribute("aria-hidden", "true");
+    card.appendChild(phaseAnchor);
+    card.addEventListener("click", () => openInspectorForProject(project.id, card));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openInspectorForProject(project.id, card);
+      }
+    });
 
     const content = document.createElement("div");
     content.className = "project-card__content";
@@ -948,6 +989,15 @@ const render = () => {
     card.append(content, footer);
     projectsGrid.appendChild(card);
   });
+
+  if (document.body) {
+    const showCreateCue = isFirstTime && !isSearching;
+    if (showCreateCue) {
+      document.body.dataset.showCreateCue = "true";
+    } else {
+      delete document.body.dataset.showCreateCue;
+    }
+  }
 
   renderInspector();
 };
@@ -1062,6 +1112,8 @@ const renderInspector = () => {
     return;
   }
 
+  syncInspectorPhaseAnchor(project.phase);
+
   if (inspectorNameInput) {
     inspectorNameInput.value = project.name || "";
   }
@@ -1103,7 +1155,7 @@ const renderInspector = () => {
       inspectorHistoryList.innerHTML = history
         .map((entry) => {
           const atLabel = entry.atISO ? new Date(entry.atISO).toLocaleString() : "Unknown";
-          return `<li>${entry.from} → ${entry.to} · ${atLabel}</li>`;
+          return `<li><span class="phase-anchor phase-anchor--history" data-phase="${entry.to}" aria-hidden="true"></span>${entry.from} → ${entry.to} · ${atLabel}</li>`;
         })
         .join("");
     }
@@ -1555,6 +1607,14 @@ const setNotesPhase = (phase, { focusTab = false } = {}) => {
   }
 };
 
+const syncInspectorPhaseAnchor = (phase) => {
+  if (!phase || !inspectorPhaseAnchor) {
+    return;
+  }
+  inspectorPhaseAnchor.dataset.phase = phase;
+  inspectorPhaseAnchor.setAttribute("title", phase);
+};
+
 const handleNotesTabKeydown = (event) => {
   const currentIndex = notesTabButtons.indexOf(event.currentTarget);
   if (currentIndex === -1) {
@@ -1708,6 +1768,7 @@ inspectorPhaseSelect?.addEventListener("change", (event) => {
   if (!VALID_PHASES.includes(nextPhase)) {
     return;
   }
+  syncInspectorPhaseAnchor(nextPhase);
   if (draftProject) {
     updateDraftProject({ phase: nextPhase });
     setNotesPhase(nextPhase);
@@ -1732,6 +1793,7 @@ inspectorCreateButton?.addEventListener("click", () => {
 inspectorAbandonButton?.addEventListener("click", handleAbandonClick);
 
 createButton?.addEventListener("click", () => {
+  ensureDashboardWorkspaceVisible();
   openDraftInspector(createButton);
 });
 

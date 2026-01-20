@@ -169,6 +169,11 @@
           <aside class="right-inspector" aria-label="Project inspector">
             <div class="right-inspector__shell">
               <header class="right-inspector__header">
+                <span
+                  class="phase-anchor phase-anchor--inspector"
+                  id="inspectorPhaseAnchor"
+                  aria-hidden="true"
+                ></span>
                 <input
                   id="inspectorName"
                   class="right-inspector__title-input"
@@ -176,7 +181,11 @@
                   placeholder="Project name"
                   aria-label="Project name"
                 />
-                <button id="inspectorClose" class="icon-button right-inspector__close" aria-label="Close inspector">
+                <button
+                  id="inspectorClose"
+                  class="icon-button right-inspector__close"
+                  aria-label="Close inspector"
+                >
                   ×
                 </button>
               </header>
@@ -283,6 +292,10 @@
                   <div class="inspector-meta__row">
                     <span>Updated</span>
                     <span id="inspectorUpdated"></span>
+                  </div>
+                  <div class="inspector-saved-indicator" id="inspectorSavedIndicator" aria-live="polite">
+                    <span aria-hidden="true">✓</span>
+                    Saved
                   </div>
                 </section>
                 <div class="inspector-footer">
